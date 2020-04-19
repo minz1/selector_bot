@@ -1,30 +1,137 @@
 package com.minz1
 
+import com.jessecorbett.diskord.api.model.GuildMember
+import com.jessecorbett.diskord.api.model.Message
 import com.jessecorbett.diskord.api.model.VoiceState
+import com.jessecorbett.diskord.api.rest.PatchGuildMember
+import com.jessecorbett.diskord.api.rest.client.ChannelClient
 import com.jessecorbett.diskord.api.rest.client.GuildClient
-import com.natpryce.konfig.*
 import com.jessecorbett.diskord.dsl.bot
+import com.jessecorbett.diskord.dsl.command
+import com.jessecorbett.diskord.dsl.commands
+import com.jessecorbett.diskord.util.DiskordInternals
+import com.natpryce.konfig.ConfigurationProperties
+import com.natpryce.konfig.EnvironmentVariables
+import com.natpryce.konfig.Key
+import com.natpryce.konfig.overriding
+import com.natpryce.konfig.stringType
 import java.io.File
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class SelectorBot {
-    private val botToken = Key("bot.token", stringType)
-    private val serverId = Key("server.id", stringType)
-    private val roleId = Key("role.id", stringType)
-    private val voiceChannelId = Key("voice.channel.id", stringType)
+    private val keyBotToken = Key("bot.token", stringType)
+    private val keyServerId = Key("server.id", stringType)
+    private val keyRoleId = Key("role.id", stringType)
+    private val keyVcId = Key("voice.channel.id", stringType)
+    private val keyCmdPrefix = Key("command.prefix", stringType)
     private val config = ConfigurationProperties.systemProperties() overriding
             EnvironmentVariables() overriding
             ConfigurationProperties.fromFile(File("selector.bot.properties"))
 
-    public suspend fun runBot() {
-        val vcId = config[voiceChannelId]
-        val botToken = config[botToken]
-        val roleId = config[roleId]
-        val guildId = config[serverId]
+    private val vcId = config[keyVcId]
+    private val botToken = config[keyBotToken]
+    private val roleId = config[keyRoleId]
+    private val guildId = config[keyServerId]
+    private val commandPrefix = config[keyCmdPrefix]
 
+    private val guildClient = GuildClient(botToken, guildId)
+
+    public suspend fun runBot() {
         var voiceStates = ArrayList<VoiceState>()
-        val guildClient = GuildClient(botToken, guildId)
+        var pollRunning = false
 
         bot(botToken) {
+            commands(commandPrefix) {
+                command("overthrow") {
+                    delete()
+
+                    var theUser: GuildMember? = null
+
+                    for (voiceState in voiceStates) {
+                        val tempUser = guildClient.getMember(voiceState.userId)
+
+                        if (roleId in tempUser.roleIds) {
+                            theUser = tempUser; break
+                        }
+                    }
+
+                    var poll: Message? = null
+
+                    when {
+                        theUser == null -> {
+                            reply {
+                                title = "Un jour triste..."
+                                description = "Sadly, there is no revolution to be had here." +
+                                        " Hopefully, the day will come!"
+                            }
+                        }
+                        pollRunning -> {
+                            reply {
+                                title = "Continuez à vous battre!"
+                                description = "We are already overthrowing a tyrant! Keep fighting until it's over!"
+                            }
+                        }
+                        else -> {
+                            poll = reply {
+                                title = "Vive la révolution!"
+                                description = "To successfully overthrow " +
+                                        "${theUser.nickname ?: theUser.user?.username ?: "the tyrant"}," +
+                                        " we MUST have MORE ✅ votes than ❌ votes in 5 minutes!"
+                            }
+
+                            poll.react("✅")
+                            poll.react("❌")
+                        }
+                    }
+
+                    if (poll != null) {
+                        GlobalScope.launch {
+                            pollRunning = true
+                            val channelClient = ChannelClient(botToken, poll!!.channelId)
+                            delay(300000L)
+                            pollRunning = false
+
+                            val reactions = channelClient.getMessage(poll!!.id).reactions
+                            var yesVotes = 0
+                            var noVotes = 0
+
+                            for (reaction in reactions) {
+                                if (reaction.emoji.name == "✅") {
+                                    yesVotes = reaction.count
+                                } else if (reaction.emoji.name == "❌") {
+                                    noVotes = reaction.count
+                                }
+                            }
+
+                            poll!!.delete()
+
+                            if (yesVotes > noVotes) {
+                                reply {
+                                    title = "Vive la révolution!"
+                                    description = "${theUser?.nickname ?: theUser?.user?.username ?: "the tyrant"}" +
+                                            " has been overthrown! Rejoice!"
+                                    GlobalScope.launch {
+                                        if (theUser != null) {
+                                            dcUserFromVc(theUser)
+                                        }
+                                    }
+                                }
+                            } else {
+                                reply {
+                                    title = "Un jour triste..."
+                                    description = "Sadly, there was not enough support for the revolution..." +
+                                            " Hopefully, the day will come!"
+                                }
+                            }
+
+                            poll = null
+                        }
+                    }
+                }
+            }
+
             guildCreated { guild ->
                 voiceStates = ArrayList(guild.voiceStates)
             }
@@ -77,5 +184,15 @@ class SelectorBot {
                 }
             }
         }
+    }
+
+    @OptIn(DiskordInternals::class)
+    private suspend fun dcUserFromVc(guildMember: GuildMember): Unit {
+        val guildMemberId = guildMember.user!!.id
+
+        val patchGuildMember = PatchGuildMember(guildMember.nickname, guildMember.roleIds, guildMember.isMute,
+                guildMember.isDeaf, null)
+
+        guildClient.patchRequest("/guilds/$guildId/members/${guildMemberId}", patchGuildMember, PatchGuildMember.serializer())
     }
 }
