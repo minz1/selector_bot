@@ -26,6 +26,7 @@ class SelectorBot {
     private val keyServerId = Key("server.id", stringType)
     private val keyRoleId = Key("role.id", stringType)
     private val keyVcId = Key("voice.channel.id", stringType)
+    private val keyBanRoleId = Key("ban.role.id", stringType)
     private val keyCmdPrefix = Key("command.prefix", stringType)
     private val config = ConfigurationProperties.systemProperties() overriding
             EnvironmentVariables() overriding
@@ -35,6 +36,7 @@ class SelectorBot {
     private val botToken = config[keyBotToken]
     private val roleId = config[keyRoleId]
     private val guildId = config[keyServerId]
+    private val banRoleId = config[keyBanRoleId]
     private val commandPrefix = config[keyCmdPrefix]
 
     private val guildClient = GuildClient(botToken, guildId)
@@ -132,6 +134,12 @@ class SelectorBot {
                                             title = "Long live the revolution!"
                                             description = "${theUser?.nickname ?: theUser?.user?.username ?: "the tyrant"}" +
                                                     " has been overthrown! Rejoice!"
+                                            GlobalScope.launch {
+                                                if (banRoleId !in theUser!!.roleIds)
+                                                    guildClient.addMemberRole(theUser.user!!.id, banRoleId)
+                                                delay(300000L)
+                                                guildClient.removeMemberRole(theUser.user!!.id, banRoleId)
+                                            }
                                         }
                                     }
                                 }
