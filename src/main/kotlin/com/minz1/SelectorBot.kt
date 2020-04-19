@@ -1,5 +1,6 @@
 package com.minz1
 
+import com.jessecorbett.diskord.api.exception.DiscordBadPermissionsException
 import com.jessecorbett.diskord.api.model.GuildMember
 import com.jessecorbett.diskord.api.model.Message
 import com.jessecorbett.diskord.api.model.VoiceState
@@ -62,23 +63,27 @@ class SelectorBot {
                     when {
                         theUser == null -> {
                             reply {
-                                title = "Un jour triste..."
+                                title = "A sad day..."
                                 description = "Sadly, there is no revolution to be had here." +
                                         " Hopefully, the day will come!"
                             }
                         }
                         pollRunning -> {
-                            reply {
-                                title = "Continuez à vous battre!"
-                                description = "We are already overthrowing a tyrant! Keep fighting until it's over!"
+                            GlobalScope.launch {
+                                val message = reply {
+                                    title = "Keep fighting!"
+                                    description = "We are already overthrowing a tyrant! Keep fighting until it's over!"
+                                }
+                                delay(5000L)
+                                message.delete()
                             }
                         }
                         else -> {
                             poll = reply {
-                                title = "Vive la révolution!"
+                                title = "Long live the revolution!"
                                 description = "To successfully overthrow " +
                                         "${theUser.nickname ?: theUser.user?.username ?: "the tyrant"}," +
-                                        " we MUST have MORE ✅ votes than ❌ votes in 5 minutes!"
+                                        " we MUST have MORE ✅ votes than ❌ votes in ONE (1) minute!"
                             }
 
                             poll.react("✅")
@@ -90,7 +95,7 @@ class SelectorBot {
                         GlobalScope.launch {
                             pollRunning = true
                             val channelClient = ChannelClient(botToken, poll!!.channelId)
-                            delay(300000L)
+                            delay(60000L)
                             pollRunning = false
 
                             val reactions = channelClient.getMessage(poll!!.id).reactions
@@ -108,19 +113,31 @@ class SelectorBot {
                             poll!!.delete()
 
                             if (yesVotes > noVotes) {
-                                reply {
-                                    title = "Vive la révolution!"
-                                    description = "${theUser?.nickname ?: theUser?.user?.username ?: "the tyrant"}" +
-                                            " has been overthrown! Rejoice!"
-                                    GlobalScope.launch {
+                                var tooHighRank = false
+                                GlobalScope.launch {
+                                    try {
                                         if (theUser != null) {
-                                            dcUserFromVc(theUser)
+                                            dcUserFromVc(theUser.user!!.id)
+                                        }
+                                    } catch (dbpe: DiscordBadPermissionsException) {
+                                        reply {
+                                            title = "A sad day..."
+                                            description = "${theUser?.nickname ?: theUser?.user?.username ?: "the tyrant"}" +
+                                                    " couldn't be overthrown... their rank is too high."
+                                        }
+                                        tooHighRank = true
+                                    }
+                                    if (! tooHighRank) {
+                                        reply {
+                                            title = "Long live the revolution!"
+                                            description = "${theUser?.nickname ?: theUser?.user?.username ?: "the tyrant"}" +
+                                                    " has been overthrown! Rejoice!"
                                         }
                                     }
                                 }
                             } else {
                                 reply {
-                                    title = "Un jour triste..."
+                                    title = "A sad day..."
                                     description = "Sadly, there was not enough support for the revolution..." +
                                             " Hopefully, the day will come!"
                                 }
@@ -187,12 +204,12 @@ class SelectorBot {
     }
 
     @OptIn(DiskordInternals::class)
-    private suspend fun dcUserFromVc(guildMember: GuildMember): Unit {
-        val guildMemberId = guildMember.user!!.id
+    private suspend fun dcUserFromVc(userId: String): Unit {
+        val guildMember = guildClient.getMember(userId)
 
         val patchGuildMember = PatchGuildMember(guildMember.nickname, guildMember.roleIds, guildMember.isMute,
                 guildMember.isDeaf, null)
 
-        guildClient.patchRequest("/guilds/$guildId/members/${guildMemberId}", patchGuildMember, PatchGuildMember.serializer())
+        guildClient.patchRequest("/guilds/$guildId/members/${userId}", patchGuildMember, PatchGuildMember.serializer(), omitNullProperties = false)
     }
 }
