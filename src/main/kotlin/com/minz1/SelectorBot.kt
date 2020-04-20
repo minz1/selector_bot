@@ -44,12 +44,12 @@ class SelectorBot {
     public suspend fun runBot() {
         var voiceStates = ArrayList<VoiceState>()
         var pollRunning = false
+        var coolDown = false
 
         bot(botToken) {
             commands(commandPrefix) {
                 command("overthrow") {
-                    delete()
-
+                    val initiatingUser = guildClient.getMember(this.author.id)
                     var theUser: GuildMember? = null
 
                     for (voiceState in voiceStates) {
@@ -80,10 +80,22 @@ class SelectorBot {
                                 message.delete()
                             }
                         }
+                        coolDown -> {
+                            GlobalScope.launch {
+                                val message = reply {
+                                    title = "Still preparing..."
+                                    description = "We are spent from the previous revolution... after TEN (10) minutes" +
+                                            " have passed, we can begin anew!"
+                                }
+                                delay(5000L)
+                                message.delete()
+                            }
+                        }
                         else -> {
                             poll = reply {
                                 title = "Long live the revolution!"
-                                description = "To successfully overthrow " +
+                                description = "${initiatingUser.nickname ?: initiatingUser.user?.username ?: "a revolutionary"}" +
+                                        " has begun a coup!\nTo successfully overthrow " +
                                         "${theUser.nickname ?: theUser.user?.username ?: "the tyrant"}," +
                                         " we MUST have MORE ✅ votes than ❌ votes in ONE (1) minute!"
                             }
@@ -139,6 +151,11 @@ class SelectorBot {
                                                     guildClient.addMemberRole(theUser.user!!.id, banRoleId)
                                                 delay(300000L)
                                                 guildClient.removeMemberRole(theUser.user!!.id, banRoleId)
+                                            }
+                                            GlobalScope.launch {
+                                                coolDown = true
+                                                delay(600000L)
+                                                coolDown = false
                                             }
                                         }
                                     }
