@@ -123,46 +123,53 @@ class SelectorBot {
 
                             if (yesVotes > noVotes) {
                                 GlobalScope.launch {
+                                    val usersStillHere = ArrayList<String>(usersInVc.size)
                                     val usersToBePunished = ArrayList<String>(usersInVc.size)
 
                                     for (userId in usersInVc) {
-                                        if (! currentVcUsers.contains(userId)) {
+                                        if (currentVcUsers.contains(userId)) {
+                                            usersStillHere.add(userId)
+                                        } else {
                                             usersToBePunished.add(userId)
-                                            usersInVc.remove(userId)
                                         }
                                     }
 
-                                    val finalUserList = usersInVc.toList()
+                                    val finalUsersStillHere = usersStillHere.toList()
+                                    val finalUsersToBePunished = usersToBePunished.toList()
 
                                     GlobalScope.launch {
-                                        for (userId in usersToBePunished) {
+                                        for (userId in finalUsersToBePunished) {
                                             guildClient.addMemberRole(userId, banRoleId)
                                         }
                                         delay(1800000L)
-                                        for (userId in usersToBePunished) {
+                                        for (userId in finalUsersToBePunished) {
                                             guildClient.removeMemberRole(userId, banRoleId)
                                         }
                                     }
 
                                     try {
-                                        if (finalUserList.isNotEmpty()) {
-                                            for (userId in finalUserList) {
+                                        if (finalUsersStillHere.isNotEmpty()) {
+                                            for (userId in finalUsersStillHere) {
                                                 dcUserFromVc(userId)
                                             }
                                         }
 
-                                        val firstUser = guildClient.getMember(finalUserList[0])
+                                        val firstUser = if (finalUsersStillHere.isNotEmpty()) {
+                                            guildClient.getMember(finalUsersStillHere[0])
+                                        } else {
+                                            guildClient.getMember(finalUsersToBePunished[0])
+                                        }
 
                                         reply {
                                             title = "Long live the revolution!"
                                             description = "${firstUser.nickname ?: firstUser.user?.username ?: "the tyrant"}" +
                                                     " has been overthrown! Rejoice!"
                                             GlobalScope.launch {
-                                                for (userId in finalUserList) {
+                                                for (userId in finalUsersStillHere) {
                                                     guildClient.addMemberRole(userId, banRoleId)
                                                 }
                                                 delay(600000L)
-                                                for (userId in finalUserList) {
+                                                for (userId in finalUsersStillHere) {
                                                     guildClient.removeMemberRole(userId, banRoleId)
                                                 }
                                             }
@@ -175,7 +182,7 @@ class SelectorBot {
                                     } catch (dbpe: DiscordBadPermissionsException) {
                                         reply {
                                             title = "A sad day..."
-                                            description = "the tyrant couldn't be overthrown... their rank is too high."
+                                            description = "The tyrant couldn't be overthrown... their rank is too high."
                                         }
                                     }
                                 }
@@ -213,23 +220,26 @@ class SelectorBot {
                 when {
                     voiceStates.containsKey(userId) -> {
                         // the user is in voice already
-                        var oldVoiceState = voiceStates[userId]
+                        val oldVoiceState = voiceStates[userId]
 
                         if (oldVoiceState!!.channelId == vcId) {
-                            // the user moved out of our channel
+                            // the user moved out of the specific channel
                             guildClient.removeMemberRole(userId, roleId)
                             vcUsers.remove(userId)
                         }
 
                         if (newVoiceState.channelId.isNullOrBlank()) {
                             // the user disconnected from voice
-                            guildClient.removeMemberRole(userId, roleId)
                             voiceStates.remove(userId)
-                            vcUsers.remove(userId)
-                        } else if (newVoiceState.channelId == vcId) {
-                            // the user moved into our channel
-                            guildClient.addMemberRole(userId, roleId)
-                            vcUsers.add(userId)
+                        } else {
+                            // the user moved channels
+                            voiceStates[userId] = newVoiceState
+
+                            if (newVoiceState.channelId == vcId) {
+                                // the user moved into the specific channel
+                                guildClient.addMemberRole(userId, roleId)
+                                vcUsers.add(userId)
+                            }
                         }
                     }
                     else -> {
@@ -237,7 +247,7 @@ class SelectorBot {
                         voiceStates[userId] = newVoiceState
 
                         if (newVoiceState.channelId == vcId) {
-                            // give them the role if they connect to our channel
+                            // the user just joined the specific channel
                             guildClient.addMemberRole(userId, roleId)
                             vcUsers.add(userId)
                         }
